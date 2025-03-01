@@ -4,6 +4,8 @@ from shapely.geometry import Point
 from shapely.wkt import loads
 from geopy.geocoders import Nominatim
 import geopandas as gpd
+import folium
+
 
 app = Flask(__name__)
 
@@ -282,6 +284,7 @@ neighborhood_to_cmhc = {
     
 }
 
+
 # Geocode the address
 def geocode_address(address):
     """
@@ -290,7 +293,9 @@ def geocode_address(address):
     geolocator = Nominatim(user_agent="cmhc-zone-finder")
     location = geolocator.geocode(address)
     if location:
+        print("The coordinates of this address is", location)
         return Point(location.longitude, location.latitude)  # Longitude, Latitude for Shapely
+        
     return None
 
 # Find the CMHC zone
@@ -308,6 +313,7 @@ def find_cmhc_zone(address):
             neighborhood_name = row["Name"]
             cmhc_zone = neighborhood_to_cmhc.get(neighborhood_name, "Unknown")
             return {"neighborhood": neighborhood_name, "cmhc_zone": cmhc_zone}
+            
 
     return {"error": "No neighborhood found for this address."}
 
@@ -321,9 +327,45 @@ def get_zone():
     address = request.form.get("address")
     if not address:
         return jsonify({"error": "Address is required."})
-    
-    result = find_cmhc_zone(address)
-    return jsonify(result)
+
+    point = geocode_address(address)
+    if not point:
+        return jsonify({"error": "Address could not be geocoded."})
+
+    found_neighborhood = None
+    for _, row in neighborhoods.iterrows():
+        if row["geometry"].contains(point):
+            found_neighborhood = row
+            break
+
+    if found_neighborhood is None:
+        return jsonify({"error": "No neighborhood found for this address."})
+
+    neighborhood_name = found_neighborhood["Name"]
+    cmhc_zone = neighborhood_to_cmhc.get(neighborhood_name, "Unknown")
+
+    m = folium.Map(location=[point.y, point.x], zoom_start=14)
+
+    folium.Marker(
+        [point.y, point.x],
+        popup="Input Location",
+        icon=folium.Icon(color="red")
+    ).add_to(m)
+
+    folium.GeoJson(
+        found_neighborhood["geometry"].__geo_interface__,
+        name=f"{neighborhood_name} Area",
+        tooltip=neighborhood_name
+    ).add_to(m)
+
+    map_html = m._repr_html_()
+
+    return jsonify({
+        "neighborhood": neighborhood_name,
+        "cmhc_zone": cmhc_zone,
+        "map": map_html
+    })
+
 
 # Run the app
 if __name__ == "__main__":
