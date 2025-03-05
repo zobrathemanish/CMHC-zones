@@ -4,3 +4,5 @@ shapely
 geopy
 flask
 gunicorn
+folium
+
